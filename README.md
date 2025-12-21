@@ -13,7 +13,7 @@ The system combines:
 - Zero-Knowledge Proofs (zk-SNARKs) for privacy-preserving verification
 
 ## System Architecture
-(Insert architecture diagram)
+<img width="1054" height="373" alt="image" src="https://github.com/user-attachments/assets/13625be8-8465-4b38-bbbd-2fa4fb1cb335" />
 
 ## Technologies Used
 - Solidity
