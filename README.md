@@ -27,8 +27,5 @@ The system combines:
 2. Student generates a ZK proof locally
 3. Employer verifies proof on-chain without seeing private data
 
-## Installation & Setup
-(steps if required)
-
 ## Academic Context
 This project is submitted in partial fulfilment of the requirements for the award of the B.Sc. (Hons) in Computer Science.
