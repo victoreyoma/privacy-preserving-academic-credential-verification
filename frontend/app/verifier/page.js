@@ -5,7 +5,6 @@ import { ethers } from 'ethers';
 // --------------------------------------------------------------------------------
 // CONFIGURATION
 // --------------------------------------------------------------------------------
-// The address that we KNOW works
 const CONTRACT_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"; 
 
 export default function VerifierDashboard() {
@@ -13,16 +12,14 @@ export default function VerifierDashboard() {
   const [status, setStatus] = useState('');
   const [verificationResult, setVerificationResult] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [walletAddress, setWalletAddress] = useState('');
 
-  // 1. UI ONLY: Connect MetaMask (For the "DApp Experience")
+  // Function to Connect MetaMask
   const connectWallet = async () => {
     if (window.ethereum) {
       try {
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        await window.ethereum.request({ method: 'eth_requestAccounts' });
         setIsConnected(true);
-        setWalletAddress(accounts[0]);
-        setStatus("✅ Wallet Connected. Ready to Verify.");
+        setStatus("Wallet Connected. Ready to Verify.");
       } catch (error) {
         console.error(error);
         setStatus("❌ Connection denied.");
@@ -32,13 +29,14 @@ export default function VerifierDashboard() {
     }
   };
 
-  // 2. LOGIC: Verify using Direct Connection (Reliable!)
   const verifyProof = async () => {
     try {
-      setStatus("⏳ Verifying Proof...");
+      if (!window.ethereum) return alert("Please install MetaMask");
+      
+      setStatus("⏳ parsing data...");
       setVerificationResult(null);
 
-      // Parse JSON
+      // 1. Parse the JSON
       let parsed;
       try {
         parsed = JSON.parse(proofData);
@@ -48,7 +46,7 @@ export default function VerifierDashboard() {
       
       const { proof, publicSignals } = parsed;
 
-      // Format for Solidity
+      // 2. Format for Solidity
       const pA = [proof.pi_a[0], proof.pi_a[1]];
       const pB = [
         [proof.pi_b[0][1], proof.pi_b[0][0]], 
@@ -57,16 +55,22 @@ export default function VerifierDashboard() {
       const pC = [proof.pi_c[0], proof.pi_c[1]];
       const pubSignals = publicSignals;
 
+      setStatus("🔌 Connecting to MetaMask...");
+
       // ------------------------------------------------------------
-      // HYBRID TRICK: Use Direct Provider for reliability
+      // META MASK CONNECTION IS BACK
       // ------------------------------------------------------------
-      // We don't need the user's wallet to check math. We use the public node.
-      const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner(); // We get the signer (the user)
       
       const contractData = await fetch('/artifacts/Groth16Verifier.json').then(res => res.json());
-      const contract = new ethers.Contract(CONTRACT_ADDRESS, contractData.abi, provider);
+      
+      // We connect the contract to the SIGNER (MetaMask User)
+      const contract = new ethers.Contract(CONTRACT_ADDRESS, contractData.abi, signer);
 
-      console.log("Checking proof on-chain...");
+      // 3. Verify
+      // We use .staticCall to ask the node "Is this valid?" without paying gas
+      console.log("Sending to contract...", CONTRACT_ADDRESS);
       const isValid = await contract.verifyProof.staticCall(pA, pB, pC, pubSignals);
 
       if (isValid === true) {
@@ -89,15 +93,11 @@ export default function VerifierDashboard() {
       <h1>✅ Employer Verifier Dashboard</h1>
       <p>Paste the proof provided by the student to verify it on-chain.</p>
 
-      {/* Connect Wallet Button - Visual Only */}
-      {!isConnected ? (
+      {/* Connect Wallet Button */}
+      {!isConnected && (
         <button onClick={connectWallet} style={{...actionBtnStyle, background: '#ff9900', marginBottom: '20px'}}>
-          🦊 Connect MetaMask (Employer ID)
+          🦊 Connect MetaMask First
         </button>
-      ) : (
-        <div style={{marginBottom: '20px', padding: '10px', background: '#eef', borderRadius: '5px'}}>
-          <strong>Connected Employer:</strong> {walletAddress}
-        </div>
       )}
 
       <div style={{ border: '1px solid #ddd', padding: '25px', borderRadius: '8px' }}>
@@ -109,8 +109,7 @@ export default function VerifierDashboard() {
           onChange={(e) => setProofData(e.target.value)}
         />
 
-        {/* Verification Button - Works even if wallet is glitchy */}
-        <button onClick={verifyProof} style={actionBtnStyle}>
+        <button onClick={verifyProof} disabled={!isConnected} style={{...actionBtnStyle, opacity: isConnected ? 1 : 0.5}}>
           Verify Proof on Blockchain
         </button>
 
