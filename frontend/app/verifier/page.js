@@ -5,7 +5,7 @@ import { ethers } from 'ethers';
 // --------------------------------------------------------------------------------
 // CONFIGURATION
 // --------------------------------------------------------------------------------
-const CONTRACT_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"; 
+const CONTRACT_ADDRESS = "0x4E46bb613DBB9F7e5B1D7e1EB79CDb5fFdaCfC0f"; 
 
 export default function VerifierDashboard() {
   const [proofData, setProofData] = useState('');
