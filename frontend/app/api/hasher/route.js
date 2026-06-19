@@ -1,30 +1,35 @@
 import { NextResponse } from 'next/server';
-// We use the same library your dataHandler.js uses
 import { buildPoseidon } from 'circomlibjs'; 
 
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { gpa, salt } = body;
+    const transcriptData = body?.transcriptData ?? body?.gpa;
+    const salt = body?.secretSalt ?? body?.salt;
 
-    if (!gpa || !salt) {
+    if (transcriptData === undefined || transcriptData === null || salt === undefined || salt === null) {
       return NextResponse.json({ error: "Missing data" }, { status: 400 });
+    }
+
+    if (!Number.isFinite(Number(transcriptData)) || !Number.isFinite(Number(salt))) {
+      return NextResponse.json({ error: "Invalid numeric input" }, { status: 400 });
     }
 
     // 1. Initialize Hash Function
     const poseidon = await buildPoseidon();
     const F = poseidon.F;
 
-    // 2. Prepare Data (MUST MATCH YOUR HOLDER LOGIC EXACTLY)
-    // In holder/page.js, we saw: Math.floor(parseFloat(gpa) * 100)
-    const transcriptNumeric = Math.floor(parseFloat(gpa) * 100);
+    // 2. Prepare data values to exactly match the circuit inputs:
+    // transcriptData (uint) and secretSalt (uint)
+    const preparedTranscript = BigInt(Math.floor(Number(transcriptData)));
+    const preparedSalt = BigInt(Math.floor(Number(salt)));
 
     // 3. Calculate Hash
-    // Hash = Poseidon([GPA, Salt])
-    const hashBigInt = poseidon([transcriptNumeric, salt]);
-    
-    // Convert to the Decimal String format Solidity expects
-    const hashString = F.toString(hashBigInt);
+    const hashBigInt = poseidon([preparedTranscript, preparedSalt]);
+    const hashObject = F.toObject(hashBigInt);
+
+    // Convert to decimal string for Solidity compatibility.
+    const hashString = hashObject.toString();
 
     return NextResponse.json({ hash: hashString });
 

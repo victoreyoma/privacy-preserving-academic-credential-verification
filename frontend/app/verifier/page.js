@@ -1,147 +1,131 @@
 'use client';
+
 import { useState } from 'react';
-import { ethers } from 'ethers';
+import { formatProofForVerifier } from '../../utils/zkp';
+import { getReadOnlyProvider, getAcademicContract, getVerifierContract } from '../../utils/web3';
 
-// --------------------------------------------------------------------------------
-// CONFIGURATION
-// --------------------------------------------------------------------------------
-const CONTRACT_ADDRESS = "0x4E46bb613DBB9F7e5B1D7e1EB79CDb5fFdaCfC0f"; 
+function statusClass(value) {
+  if (value === true) return 'bg-emerald-500/10 text-emerald-200 border-emerald-500';
+  if (value === false) return 'bg-rose-500/10 text-rose-200 border-rose-500';
+  return 'bg-slate-800 text-slate-300 border-slate-700';
+}
 
-export default function VerifierDashboard() {
-  const [proofData, setProofData] = useState('');
-  const [status, setStatus] = useState('');
-  const [verificationResult, setVerificationResult] = useState(null);
-  const [isConnected, setIsConnected] = useState(false);
+export default function VerifierPortal() {
+  const [tokenId, setTokenId] = useState('');
+  const [proofInput, setProofInput] = useState('');
+  const [result, setResult] = useState(null);
+  const [status, setStatus] = useState('Upload proof JSON and enter token ID.');
+  const [isVerifying, setIsVerifying] = useState(false);
 
-  // Function to Connect MetaMask
-  const connectWallet = async () => {
-    if (window.ethereum) {
-      try {
-        await window.ethereum.request({ method: 'eth_requestAccounts' });
-        setIsConnected(true);
-        setStatus("Wallet Connected. Ready to Verify.");
-      } catch (error) {
-        console.error(error);
-        setStatus("❌ Connection denied.");
-      }
-    } else {
-      alert("Please install MetaMask!");
-    }
+  const parseProofFile = async (file) => {
+    const text = await file.text();
+    setProofInput(text);
   };
 
-  const verifyProof = async () => {
+  const verify = async () => {
     try {
-      if (!window.ethereum) return alert("Please install MetaMask");
-      
-      setStatus("⏳ parsing data...");
-      setVerificationResult(null);
+      setIsVerifying(true);
+      setStatus('Preparing verification...');
+      setResult(null);
 
-      // 1. Parse the JSON
+      if (!tokenId) throw new Error('Enter Token ID first.');
       let parsed;
       try {
-        parsed = JSON.parse(proofData);
-      } catch(e) {
-        return alert("Invalid JSON! Please paste the full proof object.");
-      }
-      
-      const { proof, publicSignals } = parsed;
-
-      // 2. Format for Solidity
-      const pA = [proof.pi_a[0], proof.pi_a[1]];
-      const pB = [
-        [proof.pi_b[0][1], proof.pi_b[0][0]], 
-        [proof.pi_b[1][1], proof.pi_b[1][0]]
-      ];
-      const pC = [proof.pi_c[0], proof.pi_c[1]];
-      const pubSignals = publicSignals;
-
-      setStatus("🔌 Connecting to MetaMask...");
-
-      // ------------------------------------------------------------
-      // META MASK CONNECTION IS BACK
-      // ------------------------------------------------------------
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner(); // We get the signer (the user)
-      
-      const contractData = await fetch('/artifacts/Groth16Verifier.json').then(res => res.json());
-      
-      // We connect the contract to the SIGNER (MetaMask User)
-      const contract = new ethers.Contract(CONTRACT_ADDRESS, contractData.abi, signer);
-
-      // 3. Verify
-      // We use .staticCall to ask the node "Is this valid?" without paying gas
-      console.log("Sending to contract...", CONTRACT_ADDRESS);
-      const isValid = await contract.verifyProof.staticCall(pA, pB, pC, pubSignals);
-
-      if (isValid === true) {
-        setVerificationResult("✅ VALID");
-        setStatus("Blockchain Confirmation: This degree is AUTHENTIC.");
-      } else {
-        setVerificationResult("❌ INVALID");
-        setStatus("Blockchain Confirmation: The proof is mathematically incorrect.");
+        parsed = JSON.parse(proofInput);
+      } catch {
+        throw new Error('Invalid JSON file.');
       }
 
-    } catch (err) {
-      console.error(err);
-      setStatus("❌ Error: " + (err.reason || err.message || "Contract Call Failed"));
-      setVerificationResult("ERROR");
+      const proofObj = parsed.proof && parsed.publicSignals ? parsed : parsed.proofObj ? parsed : null;
+      if (!proofObj) {
+        throw new Error('File should contain {"proof":..., "publicSignals":...}.');
+      }
+
+      const proof = proofObj.proof;
+      const publicSignals = proofObj.publicSignals || [];
+      const payload = formatProofForVerifier({ proof, publicSignals });
+
+      const provider = getReadOnlyProvider();
+      const academic = await getAcademicContract(provider);
+      const verifier = await getVerifierContract(provider);
+
+      const chainRoot = await academic.credentialRoots(tokenId);
+      const computedRoot = BigInt(chainRoot).toString();
+      const proofRoot = String(publicSignals[0] ?? '').trim();
+      if (!proofRoot) throw new Error('Proof package misses publicSignals[0] root.');
+      if (BigInt(computedRoot) !== BigInt(proofRoot)) {
+        throw new Error('Proof root does not match on-chain token root.');
+      }
+
+      const isValid = await verifier.verifyProof(payload.a, payload.b, payload.c, payload.input);
+      setResult(isValid === true);
+      setStatus(isValid ? 'Proof is valid for the token.' : 'Proof is invalid.');
+    } catch (error) {
+      setResult(false);
+      setStatus(error.message || 'Verification failed.');
+    } finally {
+      setIsVerifying(false);
     }
   };
 
   return (
-    <div style={{ padding: '40px', maxWidth: '800px', margin: '0 auto', fontFamily: 'Arial' }}>
-      <h1>✅ Employer Verifier Dashboard</h1>
-      <p>Paste the proof provided by the student to verify it on-chain.</p>
+    <main className="min-h-screen bg-slate-950 text-slate-100">
+      <section className="mx-auto flex max-w-3xl flex-col gap-6 px-6 py-8 md:px-10">
+        <h1 className="text-3xl font-semibold">Employer Verification Portal</h1>
+        <p className="text-slate-300">Search-style public verification page. No wallet is needed.</p>
 
-      {/* Connect Wallet Button */}
-      {!isConnected && (
-        <button onClick={connectWallet} style={{...actionBtnStyle, background: '#ff9900', marginBottom: '20px'}}>
-          🦊 Connect MetaMask First
+        <label className="text-sm">
+          Token ID
+          <input
+            value={tokenId}
+            onChange={(e) => setTokenId(e.target.value)}
+            placeholder="12345"
+            className="mt-1 w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2"
+          />
+        </label>
+
+        <label className="text-sm">
+          Proof JSON (paste or upload)
+          <textarea
+            value={proofInput}
+            onChange={(e) => setProofInput(e.target.value)}
+            rows={10}
+            className="mt-1 w-full rounded-md border border-slate-600 bg-slate-900 p-3 font-mono text-xs"
+            placeholder='{"proof": {...}, "publicSignals": ["..."]}'
+          />
+        </label>
+
+        <label className="text-sm">
+          Upload proof file
+          <input
+            type="file"
+            accept="application/json"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) parseProofFile(file);
+            }}
+            className="mt-1 block w-full text-sm text-slate-300"
+          />
+        </label>
+
+        <button
+          onClick={verify}
+          disabled={isVerifying}
+          className="rounded-lg bg-emerald-500 px-4 py-2 font-semibold text-slate-900 disabled:opacity-60"
+        >
+          {isVerifying ? 'Verifying…' : 'Verify on-chain'}
         </button>
-      )}
 
-      <div style={{ border: '1px solid #ddd', padding: '25px', borderRadius: '8px' }}>
-        <label style={{fontWeight:'bold'}}>Paste Full Proof JSON:</label>
-        <textarea 
-          style={{ width: '100%', height: '200px', fontFamily: 'monospace', marginTop: '10px', fontSize: '12px' }}
-          placeholder='{"proof": {...}, "publicSignals": [...] }'
-          value={proofData}
-          onChange={(e) => setProofData(e.target.value)}
-        />
-
-        <button onClick={verifyProof} disabled={!isConnected} style={{...actionBtnStyle, opacity: isConnected ? 1 : 0.5}}>
-          Verify Proof on Blockchain
-        </button>
-
-        {verificationResult && (
-           <div style={{ 
-             marginTop: '20px', 
-             padding: '20px', 
-             textAlign: 'center',
-             backgroundColor: verificationResult.includes("VALID") ? '#d4edda' : '#f8d7da',
-             color: verificationResult.includes("VALID") ? '#155724' : '#721c24',
-             fontSize: '24px',
-             fontWeight: 'bold',
-             borderRadius: '8px',
-             border: verificationResult.includes("VALID") ? '2px solid #28a745' : '2px solid #dc3545'
-           }}>
-             {verificationResult}
-             <p style={{fontSize:'16px', fontWeight:'normal', margin: '10px 0 0 0'}}>{status}</p>
-           </div>
-        )}
-      </div>
-    </div>
+        <div className={`rounded-lg border p-4 ${statusClass(result)} text-center`}>
+          <p className="text-xs text-slate-200">
+            Verification result
+          </p>
+          <p className="mt-1 text-3xl font-bold">
+            {result === null ? '—' : result ? 'TRUE / Valid' : 'FALSE / Invalid'}
+          </p>
+          <p className="mt-2 text-sm text-slate-200">{status}</p>
+        </div>
+      </section>
+    </main>
   );
 }
-
-const actionBtnStyle = { 
-  padding: '15px 30px', 
-  marginTop: '15px',
-  background: '#0070f3', 
-  color: '#fff', 
-  border: 'none', 
-  borderRadius: '5px', 
-  cursor: 'pointer', 
-  fontSize: '16px',
-  width: '100%'
-};

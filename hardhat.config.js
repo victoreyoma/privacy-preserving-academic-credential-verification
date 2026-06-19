@@ -1,6 +1,10 @@
 require("@nomicfoundation/hardhat-toolbox");
 // require("hardhat-gas-reporter"); // <--- Add this
 require("dotenv").config(); // Load the .env
+
+const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL || "https://sepolia.infura.io/v3/00000000000000000000000000000000";
+const PRIVATE_KEY = process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [];
+
 module.exports = {
   solidity: "0.8.20",
   // gasReporter: {
@@ -16,8 +20,8 @@ module.exports = {
     },
     // 2. Sepolia Testnet (The new target)
     sepolia: {
-      url: process.env.SEPOLIA_RPC_URL, // Reads from .env
-      accounts: [process.env.PRIVATE_KEY], // Reads from .env
+      url: SEPOLIA_RPC_URL, // Reads from .env with safe fallback
+      accounts: PRIVATE_KEY, // Reads from .env
     },
   },
 };
